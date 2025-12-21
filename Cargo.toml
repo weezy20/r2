@@ -2,6 +2,11 @@
 name = "ron2json"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "An executable to convert `ron` files to `toml`, `yaml` or `json`"
+tags = ["ron", "json", "yaml", "toml", "transcode"]
+authors = ["Abhishek Shah <github.com/weezy20>"]
+repository = "https://github.com/weezy20/r2"
 
 [[bin]]
 name = "r2"
