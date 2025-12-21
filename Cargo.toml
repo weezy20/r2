@@ -1,0 +1,16 @@
+[package]
+name = "ron2json"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "r2"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
+ron = "0.12.0"
+serde = "1.0.228"
+serde_json = "1.0.145"
+serde_yaml_bw = "2.5.1"
+toml = "0.9.10"
