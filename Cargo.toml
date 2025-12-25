@@ -1,9 +1,9 @@
 [package]
 name = "ron2json"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2024"
 license = "MIT"
-description = "An executable to convert `ron` files to `toml`, `yaml` or `json`"
+description = "Convert ron files to json, yaml, or toml or vice versa"
 tags = ["ron", "json", "yaml", "toml", "transcode"]
 authors = ["Abhishek Shah <github.com/weezy20>"]
 repository = "https://github.com/weezy20/r2"
@@ -11,6 +11,10 @@ repository = "https://github.com/weezy20/r2"
 [[bin]]
 name = "r2"
 path = "main.rs"
+
+[[test]]
+name = "conversion_tests"
+path = "test.rs"
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }

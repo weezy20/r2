@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Parser)]
-#[command(author, version, about = "Converts RON to JSON/YAML/TOML")]
+#[command(author, version, about = "Converts RON to/from JSON/YAML/TOML")]
 struct Args {
-    /// The input .ron file to convert
+    /// The input file to convert
     input: PathBuf,
 
     /// The output path for converted file. If not specified, the input file name with appropriate extension will be used.
@@ -21,16 +21,17 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     force: bool,
 
-    /// Output type. Default is json. Supports json, yaml, yml, toml.
-    #[arg(short = 't', long = "type", default_value = "json")]
-    output_type: OutputType,
+    /// Output type. Default depends on input type (RON->JSON, JSON/YAML/TOML->RON). Supports json, yaml, yml, toml, ron.
+    #[arg(short = 't', long = "type")]
+    output_type: Option<OutputType>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum OutputType {
     Json,
     Yaml,
     Toml,
+    Ron,
 }
 
 impl FromStr for OutputType {
@@ -41,8 +42,9 @@ impl FromStr for OutputType {
             "json" => Ok(OutputType::Json),
             "yaml" | "yml" => Ok(OutputType::Yaml),
             "toml" => Ok(OutputType::Toml),
+            "ron" => Ok(OutputType::Ron),
             _ => Err(format!(
-                "Invalid output type: {}. Supported types are: json, yaml, yml, toml",
+                "Invalid output type: {}. Supported types are: json, yaml, yml, toml, ron",
                 s
             )),
         }
@@ -55,6 +57,7 @@ impl std::fmt::Display for OutputType {
             OutputType::Json => write!(f, "json"),
             OutputType::Yaml => write!(f, "yaml"),
             OutputType::Toml => write!(f, "toml"),
+            OutputType::Ron => write!(f, "ron"),
         }
     }
 }
@@ -65,6 +68,7 @@ impl OutputType {
             OutputType::Json => "json",
             OutputType::Yaml => "yaml",
             OutputType::Toml => "toml",
+            OutputType::Ron => "ron",
         }
     }
 }
@@ -77,6 +81,20 @@ fn main() {
         std::process::exit(1);
     }
 
+    let output_type = args.output_type.unwrap_or_else(|| {
+        let input_extension = args
+            .input
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        if input_extension == "ron" {
+            OutputType::Json
+        } else {
+            OutputType::Ron
+        }
+    });
+
     // Determine output path
     let output_path = match args.output.as_ref() {
         Some(output) => {
@@ -85,12 +103,12 @@ fn main() {
                 // Use the input file's stem with the new extension
                 let file_stem = args.input.file_stem().expect("Input file has no file stem");
                 let mut new_path = output.join(file_stem);
-                new_path.set_extension(args.output_type.extension());
+                new_path.set_extension(output_type.extension());
                 new_path
             } else {
-                let file_stem = output.file_stem().expect("Output file has no file stem");
+                let file_stem = output.file_stem().expect("Output filename is valid");
                 let mut new_path = PathBuf::from(file_stem);
-                new_path.set_extension(args.output_type.extension());
+                new_path.set_extension(output_type.extension());
                 new_path
             }
         }
@@ -104,7 +122,7 @@ fn main() {
                 }
             };
             let mut path = parent.join(file_stem);
-            path.set_extension(args.output_type.extension());
+            path.set_extension(output_type.extension());
             path
         }
     };
@@ -112,7 +130,9 @@ fn main() {
     // Check if input and output are the same
     if output_path == args.input.as_path() {
         eprintln!(
-            "Error: Input and output files are the same. Please specify a different output file with -o."
+            "Error: Input {} and Output {} files are the same. Please specify a different output file with -o.",
+            args.input.display(),
+            output_path.display()
         );
         std::process::exit(1);
     }
@@ -126,7 +146,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Read RON file
+    // Read input file
     let data = std::fs::read_to_string(&args.input).unwrap_or_else(|e| {
         eprintln!(
             "Error: Failed to read input file '{}': {}",
@@ -136,13 +156,49 @@ fn main() {
         std::process::exit(1);
     });
 
-    // Parse RON
-    let value: Value = data.parse().unwrap_or_else(|e| {
-        eprintln!("Error: Failed to parse RON: {}", e);
-        std::process::exit(1);
-    });
+    let ron_value: Value = if output_type == OutputType::Ron {
+        // Deserialize from other formats into RON
+        let input_extension = args
+            .input
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
 
-    // Open output file
+        if input_extension == "ron" {
+            eprintln!(
+                "Error: Cannot convert a RON file to RON. Please specify a different output type."
+            );
+            std::process::exit(1);
+        }
+
+        match input_extension {
+            "json" => serde_json::from_str(&data).unwrap_or_else(|e| {
+                eprintln!("Error: Failed to parse JSON: {}", e);
+                std::process::exit(1);
+            }),
+            "yaml" | "yml" => serde_yaml_bw::from_str(&data).unwrap_or_else(|e| {
+                eprintln!("Error: Failed to parse YAML: {}", e);
+                std::process::exit(1);
+            }),
+            "toml" => toml::from_str(&data).unwrap_or_else(|e| {
+                eprintln!("Error: Failed to parse TOML: {}", e);
+                std::process::exit(1);
+            }),
+            _ => {
+                eprintln!(
+                    "Error: Unsupported input file type for converting to RON. Supported types are: json, yaml, yml, toml. File extension must be one of these."
+                );
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Deserialize from RON
+        data.parse().unwrap_or_else(|e| {
+            eprintln!("Error: Failed to parse RON: {}", e);
+            std::process::exit(1);
+        })
+    };
+
     let mut output_file = if args.force {
         OpenOptions::new()
             .write(true)
@@ -157,23 +213,22 @@ fn main() {
     }
     .unwrap_or_else(|e| {
         eprintln!(
-            "Error: Failed to open output file '{}': {}",
+            "Error: Failed to open output file '{}': {e}",
             output_path.display(),
-            e
         );
         std::process::exit(1);
     });
 
     // Serialize to the appropriate format
-    match args.output_type {
+    match output_type {
         OutputType::Json => {
             let mut ser = serde_json::Serializer::pretty(&mut output_file);
-            value.serialize(&mut ser).unwrap_or_else(|e| {
+            ron_value.serialize(&mut ser).unwrap_or_else(|e| {
                 eprintln!("Error serializing to JSON: {}", e);
                 std::process::exit(1);
             });
         }
-        OutputType::Yaml => match serde_yaml_bw::to_writer(&mut output_file, &value) {
+        OutputType::Yaml => match serde_yaml_bw::to_writer(&mut output_file, &ron_value) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Error serializing to YAML: {}", e);
@@ -181,7 +236,7 @@ fn main() {
             }
         },
         OutputType::Toml => {
-            let toml_string = toml::to_string_pretty(&value).unwrap_or_else(|e| {
+            let toml_string = toml::to_string_pretty(&ron_value).unwrap_or_else(|e| {
                 eprintln!("Error: Failed to serialize to TOML string: {}", e);
                 std::process::exit(1);
             });
@@ -192,7 +247,20 @@ fn main() {
                     std::process::exit(1);
                 });
         }
+        OutputType::Ron => {
+            let ron_string =
+                ron::ser::to_string_pretty(&ron_value, ron::ser::PrettyConfig::default())
+                    .unwrap_or_else(|e| {
+                        eprintln!("Error: Failed to serialize to RON string: {}", e);
+                        std::process::exit(1);
+                    });
+            output_file
+                .write_all(ron_string.as_bytes())
+                .unwrap_or_else(|e| {
+                    eprintln!("Error writing RON to file: {}", e);
+                    std::process::exit(1);
+                });
+        }
     }
-
-    println!("Converted to {}", output_path.display());
+    println!("Written to {}", output_path.display());
 }
